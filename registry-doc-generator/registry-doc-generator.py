@@ -75,12 +75,35 @@ def verify_message(message_obj, registry, message):
                 status &= False
     return status
 
+supplement_set = {}
+def add_supplement(message_name: str) -> str:
+    global supplement_set
+    '''add a link(s) to named targets found in the supplement file for the given message name'''
+    def _make_markdown_link(json_supplement) -> str:
+        assert "text" in json_supplement,f"No text element found in supplement file for {message_name}"
+        assert "link" in json_supplement, f"No link element foudn in supplement file for {message_name}"
+        content = "[" + json_supplement["text"] + "](" + json_supplement["link"] +")\n"
+        return content
+
+    if not args.supplement:
+        return "None\n\n"
+    if len(supplement_set) == 0:
+        with open(args.supplement, "r") as s:
+            supplement_set = json.load(s)
+    if message_name not in supplement_set:
+        return "None\n\n"
+    markdown_output:str = "\n\n"
+    for j in supplement_set[message_name]:
+        markdown_output = markdown_output + "- " + _make_markdown_link(j)
+    markdown_output += "\n"
+    return markdown_output
+    
 
 # Get the input arguments
 argget = argparse.ArgumentParser(
     description="A tool to build a document for message registries")
-argget.add_argument("--input", "-I", type=str, required=True,
-                    help="The folder containing the registry files to convert")
+argget.add_argument("--input", "-I", type=str, required=True, action='append',
+                    help="The folder containing the registry files to convert (may be used repeatedly)")
 argget.add_argument("--output", "-O", type=str, required=True,
                     help="The output file to generate")
 argget.add_argument("--intro", "-intro", type=str,
@@ -89,19 +112,29 @@ argget.add_argument("--postscript", "-postscript", type=str,
                     help="File containing postscript text to insert at the end of the document")
 argget.add_argument("--format", "-format", type=str, help="The format of the output file; default is 'Markdown'",
                     default="Markdown", choices=["Markdown", "CSV"])
+argget.add_argument("--supplement", "-S", type=str, required=False,
+                    help="Filepath to supplemental content linking messages to examples")
 args = argget.parse_args()
 
 output = {}
 output_str = ""
 
 # Load each file into the output dictionary
-registry_files = os.listdir(args.input)
-for registry_file in registry_files:
+registry_files = []
+for directory_name in args.input:
+    file_list = [ directory_name + os.path.sep + p for p in os.listdir(directory_name)]
+    registry_files.extend(file_list)
+for registry_file in sorted(registry_files):
     if registry_file.endswith(".json"):
         # Load the file
-        with open(args.input + os.path.sep + registry_file) as file_contents:
+        with open(registry_file, mode="r") as file_contents:
             registry_data = json.load(file_contents)
 
+        # Require a file type
+        if "@odata.type" not in registry_data:
+            print(f"No @odata.filetype found in {registry_file}; skipping")
+            continue
+        
         # Skip non-message registry files
         if not registry_data["@odata.type"].startswith("#MessageRegistry."):
             continue
@@ -146,8 +179,11 @@ else:
         output_str += "{}\n\n".format(output[registry]["Description"])
         messages = sorted(output[registry]["Messages"].keys())
 
-        # Table of messages
-        table_str = "<div class=message_table>\n"
+        # table pre-amble
+        # TODO: add to config file
+        table_str = f"The messages defined in {registry} are summarized in +@tbl:Table_TBL_nn++."
+        # # Table of messages
+        table_str += "<div class=message_table>\n"
         table_str += "| Message | Severity | Description                  |\n"
         table_str += "| :-----------    | :---     | :------ |\n"
         details_str = ""
@@ -159,13 +195,13 @@ else:
                 # Insert the message into the front table
                 name = message
                 if "Deprecated" in message_obj:
-                    name = name+"<br>(Deprecated)"
+                    name = name+" (Deprecated)"
                 table_str += "| [{}](#{}) | {} | {} |\n".format(name, message_obj["MessageLink"],
                                                                 message_obj["MessageSeverity"], message_obj["Description"])
 
                 # Add the details for the message to the rest of the details body
                 details_str += "### {}<a id=\"{}\"/>\n\n".format(
-                    message, message_obj["MessageLink"])
+                    name, message_obj["MessageLink"])
                 details_str += "{}\n\n".format(message_obj["Description"])
                 details_str += "* {}\n\n".format(
                     message_obj["LongDescription"])
@@ -190,7 +226,12 @@ else:
                 details_str += "Message and Arguments: \"{}\"\n\n".format(
                     message_obj["Message"])
                 details_str += argument_str + "\n"
-        output_str += table_str + "</div>\n" + details_str
+                details_str += "Sample Usage: " + add_supplement(message)
+
+        table_str += f"\nTable: {registry} messages "
+        table_str += "{#tbl:Table_TBL_nn}\n\n"
+        table_str += "</div>\n\n"
+        output_str += table_str + details_str
 
     # Collect wrapper text
     intro_str = ""
