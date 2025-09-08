@@ -181,7 +181,7 @@ else:
 
         # table pre-amble
         # TODO: add to config file
-        table_str = f"The messages defined in {registry} are summarized in +@tbl:Table_TBL_nn++."
+        table_str = f"The messages defined in this version of the {registry} registry are summarized in +@tbl:Table_TBL_nn++.\n\n"
         # # Table of messages
         table_str += "<div class=message_table>\n"
         table_str += "| Message | Severity | Description                  |\n"
